@@ -25,7 +25,11 @@ class DomainsTable
                 TextColumn::make('domain')
                     ->label('Домен')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->url(fn ($record) => 'https://' . $record->domain)
+                    ->openUrlInNewTab()
+                    ->icon('heroicon-m-arrow-top-right-on-square')
+                    ->iconPosition('after'),
 
                 TextColumn::make('status')
                     ->badge()
