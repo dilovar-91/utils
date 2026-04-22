@@ -85,11 +85,11 @@ class CheckDomainWhoisJob implements ShouldQueue
             }
 
             $message = implode("\n", [
-                '🚨 <b>Domain expired</b>',
+                '🚨 <b>Домен истёк</b>',
                 '',
-                'Domain: <b>' . e($domain->domain) . '</b>',
-                'Expired at: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
-                'Registrar: <b>' . e($domain->registrar ?? '-') . '</b>',
+                'Домен: <b>' . e($domain->domain) . '</b>',
+                'Дата истечения: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
+                'Регистратор: <b>' . e($domain->registrar ?? '-') . '</b>',
             ]);
 
             if ($telegramService->sendMessage($message)) {
