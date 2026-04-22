@@ -82,13 +82,13 @@ class DomainsTable
                         CheckDomainWhoisJob::dispatch($record->id);
 
                         Notification::make()
-                            ->title('Проверка WHOIS запущена')
+                            ->title('Проверка WHOIS запущена. Страница обновится через 5 секунд.')
                             ->success()
                             ->send();
                     })
-                    ->after(function () {
-                        $this->js("setTimeout(() => window.location.reload(), 5000)");
-                    }),
+                    ->extraAttributes([
+                        'x-on:click' => 'setTimeout(() => window.location.reload(), 5000)',
+                    ]),
 
                 Action::make('show_whois')
                     ->label('WHOIS')
