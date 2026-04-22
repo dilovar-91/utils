@@ -46,8 +46,8 @@ class DomainResource extends Resource
     {
         return [
             'index' => ListDomains::route('/'),
-            'create' => CreateDomain::route('/create'),
-            'edit' => EditDomain::route('/{record}/edit'),
+            //'create' => CreateDomain::route('/create'),
+           //  'edit' => EditDomain::route('/{record}/edit'),
         ];
     }
 }
