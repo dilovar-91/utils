@@ -23,11 +23,13 @@ class DomainsTable
             ->modifyQueryUsing(fn (Builder $query) => $query->latest())
             ->columns([
                 TextColumn::make('domain')
+                    ->label('Домен')
                     ->searchable()
                     ->sortable(),
 
                 TextColumn::make('status')
                     ->badge()
+                    ->label('Статус')
                     ->colors([
                         'gray' => 'unknown',
                         'success' => 'active',
@@ -36,46 +38,50 @@ class DomainsTable
                     ]),
 
                 TextColumn::make('expires_at')
+                    ->label('Дата истечения')
                     ->dateTime('Y-m-d H:i')
                     ->sortable()
                     ->placeholder('-'),
 
                 TextColumn::make('registrar')
+                    ->label('Регистратор')
                     ->searchable()
                     ->limit(30)
                     ->placeholder('-'),
 
                 TextColumn::make('last_checked_at')
+                    ->label('Последняя проверка')
                     ->dateTime('Y-m-d H:i')
                     ->sortable()
                     ->placeholder('-'),
             ])
             ->filters([
                 SelectFilter::make('status')
+                    ->label('Статус')
                     ->options([
-                        'unknown' => 'Unknown',
-                        'active' => 'Active',
-                        'expiring' => 'Expiring',
-                        'expired' => 'Expired',
-                        'error' => 'Error',
+                        'unknown' => 'Неизвестно',
+                        'active' => 'Активен',
+                        'expiring' => 'Скоро истекает',
+                        'expired' => 'Истёк',
+                        'error' => 'Ошибка',
                     ]),
             ])
             ->recordActions([
-               EditAction::make(),
+                EditAction::make(),
 
                 Action::make('check_now')
-                    ->label('Check now')
+                    ->label('Проверить')
                     ->icon('heroicon-o-arrow-path')
                     ->action(function (Domain $record) {
                         CheckDomainWhoisJob::dispatch($record->id);
 
                         Notification::make()
-                            ->title('WHOIS check queued')
+                            ->title('Проверка WHOIS поставлена в очередь')
                             ->success()
                             ->send();
                     }),
 
-               Action::make('show_whois')
+                Action::make('show_whois')
                     ->label('WHOIS')
                     ->icon('heroicon-o-document-text')
                     ->modalHeading(fn (Domain $record) => "WHOIS: {$record->domain}")
@@ -86,7 +92,7 @@ class DomainsTable
             ])
             ->toolbarActions([
                 BulkAction::make('bulk_check')
-                    ->label('Check selected')
+                    ->label('Проверить выбранные')
                     ->icon('heroicon-o-arrow-path')
                     ->action(function ($records) {
                         foreach ($records as $record) {
@@ -94,7 +100,7 @@ class DomainsTable
                         }
 
                         Notification::make()
-                            ->title('Selected domains queued')
+                            ->title('Выбранные домены отправлены в очередь')
                             ->success()
                             ->send();
                     }),

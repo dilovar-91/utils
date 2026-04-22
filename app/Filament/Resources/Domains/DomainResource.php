@@ -20,7 +20,10 @@ class DomainResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedGlobeAlt;
 
-    protected static ?string $recordTitleAttribute = 'Домены';
+
+    protected static ?string $recordTitleAttribute = 'Домен';
+
+    protected static ?string $navigationLabel = 'Домен';
 
     public static function form(Schema $schema): Schema
     {

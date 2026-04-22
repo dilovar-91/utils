@@ -55,7 +55,7 @@ class CheckDomainWhoisJob implements ShouldQueue
 
         if ($daysLeft < 0) {
             $domain->status = 'expired';
-        } elseif ($daysLeft < 365) {
+        } elseif ($daysLeft < 30) {
             $domain->status = 'expiring';
         } else {
             $domain->status = 'active';
@@ -71,7 +71,7 @@ class CheckDomainWhoisJob implements ShouldQueue
         int $daysLeft,
         TelegramService $telegramService
     ): void {
-        if ($daysLeft >= 365) {
+        if ($daysLeft >= 30) {
             return;
         }
 
@@ -111,14 +111,13 @@ class CheckDomainWhoisJob implements ShouldQueue
         }
 
         $message = implode("\n", [
-            '⚠️ <b>Domain expires soon</b>',
+            '⚠️ <b>Срок действия домена скоро истекает</b>',
             '',
-            'Domain: <b>' . e($domain->domain) . '</b>',
-            'Days left: <b>' . $daysLeft . '</b>',
-            'Expires at: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
-            'Registrar: <b>' . e($domain->registrar ?? '-') . '</b>',
+            'Домен: <b>' . e($domain->domain) . '</b>',
+            'Осталось дней: <b>' . $daysLeft . '</b>',
+            'Истекает: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
+            'Регистратор: <b>' . e($domain->registrar ?? '-') . '</b>',
         ]);
-
         if ($telegramService->sendMessage($message)) {
             $domain->update([
                 'last_expiry_notified_at' => now(),

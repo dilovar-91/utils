@@ -14,26 +14,41 @@ class DomainForm
     {
         return $schema->schema([
             TextInput::make('domain')
+                ->label('Домен')
                 ->required()
                 ->unique(ignoreRecord: true)
                 ->maxLength(255)
                 ->placeholder('example.com'),
 
             Select::make('status')
+                ->label('Статус')
                 ->options([
-                    'unknown' => 'Unknown',
-                    'active' => 'Active',
-                    'expiring' => 'Expiring',
-                    'expired' => 'Expired',
-                    'error' => 'Error',
+                    'unknown' => 'Неизвестно',
+                    'active' => 'Активен',
+                    'expiring' => 'Скоро истекает',
+                    'expired' => 'Истёк',
+                    'error' => 'Ошибка',
                 ])
                 ->default('unknown'),
 
-            DateTimePicker::make('expires_at'),
-            TextInput::make('registrar')->maxLength(255),
-            DateTimePicker::make('last_checked_at'),
-            TextInput::make('last_error')->maxLength(255),
-            Textarea::make('raw_whois')->rows(12)->columnSpanFull(),
+            DateTimePicker::make('expires_at')
+                ->label('Дата истечения'),
+
+            TextInput::make('registrar')
+                ->label('Регистратор')
+                ->maxLength(255),
+
+            DateTimePicker::make('last_checked_at')
+                ->label('Последняя проверка'),
+
+            TextInput::make('last_error')
+                ->label('Последняя ошибка')
+                ->maxLength(255),
+
+            Textarea::make('raw_whois')
+                ->label('Сырые данные WHOIS')
+                ->rows(12)
+                ->columnSpanFull(),
         ]);
     }
 }
