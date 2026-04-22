@@ -82,7 +82,7 @@ class DomainsTable
                         CheckDomainWhoisJob::dispatch($record->id);
 
                         Notification::make()
-                            ->title('Проверка WHOIS запущена. Страница обновится через 5 секунд.')
+                            ->title('Проверка WHOIS запущена.')
                             ->success()
                             ->send();
                     })
