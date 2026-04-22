@@ -55,7 +55,7 @@ class CheckDomainWhoisJob implements ShouldQueue
 
         if ($daysLeft < 0) {
             $domain->status = 'expired';
-        } elseif ($daysLeft < 8) {
+        } elseif ($daysLeft < 365) {
             $domain->status = 'expiring';
         } else {
             $domain->status = 'active';
