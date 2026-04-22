@@ -71,7 +71,7 @@ class CheckDomainWhoisJob implements ShouldQueue
         int $daysLeft,
         TelegramService $telegramService
     ): void {
-        if ($daysLeft >= 8) {
+        if ($daysLeft >= 365) {
             return;
         }
 
