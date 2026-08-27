@@ -9,7 +9,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
 #[Signature('app:check-domains-whois')]
-#[Description('Command description')]
+#[Description('Проверить WHOIS доменов и отправить уведомления в Telegram о скорой просрочке')]
 class CheckDomainsWhois extends Command
 {
     /**
@@ -17,15 +17,20 @@ class CheckDomainsWhois extends Command
      */
     public function handle()
     {
+        $this->info('[' . now()->toDateTimeString() . '] Начало проверки доменов');
+
+        $count = 0;
+
         Domain::query()
             ->select('id')
-            ->chunkById(100, function ($domains) {
+            ->chunkById(100, function ($domains) use (&$count) {
                 foreach ($domains as $domain) {
-                    CheckDomainWhoisJob::dispatch($domain->id);
+                    CheckDomainWhoisJob::dispatchSync($domain->id);
+                    $count++;
                 }
             });
 
-        $this->info('WHOIS jobs queued.');
+        $this->info('[' . now()->toDateTimeString() . "] Проверено доменов: {$count}");
 
         return self::SUCCESS;
     }
