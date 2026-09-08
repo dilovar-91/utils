@@ -8,6 +8,8 @@ return new class extends Migration
 {
     public function up(): void
     {
+
+    
         Schema::table('domains', function (Blueprint $table) {
             $table->boolean('health_check_enabled')->default(false)->after('last_error');
             $table->string('health_url')->nullable()->after('health_check_enabled');
