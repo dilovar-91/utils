@@ -108,4 +108,33 @@ class SiteHealthTest extends TestCase
         $this->assertSame('unknown', $ignored->refresh()->health_status);
         $this->assertNull($ignored->last_health_checked_at);
     }
+
+    public function test_telegram_timeout_does_not_fail_health_check(): void
+    {
+        config([
+            'services.telegram.bot_token' => 'test-token',
+            'services.telegram.chat_id' => '123',
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'api.telegram.org')) {
+                throw new ConnectionException('cURL error 28: SSL connection timeout');
+            }
+
+            return Http::response('Error', 503);
+        });
+
+        $domain = Domain::query()->create([
+            'domain' => 'down.example',
+            'health_check_enabled' => true,
+            'health_status' => 'up',
+        ]);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+
+        $domain->refresh();
+
+        $this->assertSame('down', $domain->health_status);
+        $this->assertNull($domain->last_health_notified_status);
+    }
 }

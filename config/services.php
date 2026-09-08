@@ -38,6 +38,9 @@ return [
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         'chat_id' => env('TELEGRAM_CHAT_ID'),
+        'proxy' => env('TELEGRAM_PROXY'),
+        'timeout' => env('TELEGRAM_TIMEOUT', 20),
+        'connect_timeout' => env('TELEGRAM_CONNECT_TIMEOUT', 10),
     ],
 
 ];
