@@ -96,6 +96,9 @@ class SiteHealth extends Page implements HasTable
                         'down' => 'danger',
                         default => 'gray',
                     })
+                    ->description(fn (Domain $record): ?string => $record->health_curl_fail_count > 0
+                        ? "cURL попытка {$record->health_curl_fail_count}/3"
+                        : null)
                     ->sortable(),
 
                 TextColumn::make('health_status_code')
@@ -117,9 +120,9 @@ class SiteHealth extends Page implements HasTable
 
                 TextColumn::make('last_health_error')
                     ->label('Ошибка')
-                    ->limit(40)
+                    ->limit(60)
                     ->placeholder('-')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->toggleable(),
             ])
             ->filters([
                 TernaryFilter::make('health_check_enabled')

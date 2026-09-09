@@ -24,6 +24,7 @@ class Domain extends Model
         'health_response_time_ms',
         'last_health_checked_at',
         'last_health_error',
+        'health_curl_fail_count',
         'last_health_notified_at',
         'last_health_notified_status',
     ];
@@ -33,6 +34,7 @@ class Domain extends Model
         'last_checked_at' => 'datetime',
         'last_expiry_notified_at' => 'datetime',
         'health_check_enabled' => 'boolean',
+        'health_curl_fail_count' => 'integer',
         'last_health_checked_at' => 'datetime',
         'last_health_notified_at' => 'datetime',
     ];

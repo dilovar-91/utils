@@ -29,6 +29,25 @@ class SiteHealthTest extends TestCase
         $this->assertNull($result['error']);
     }
 
+    public function test_service_treats_403_and_404_as_up(): void
+    {
+        Http::fake([
+            'https://forbidden.example' => Http::response('Forbidden', 403),
+            'https://missing.example' => Http::response('Not Found', 404),
+        ]);
+
+        $forbidden = app(SiteHealthService::class)->check('https://forbidden.example');
+        $missing = app(SiteHealthService::class)->check('https://missing.example');
+
+        $this->assertTrue($forbidden['up']);
+        $this->assertSame(403, $forbidden['status_code']);
+        $this->assertNull($forbidden['error']);
+
+        $this->assertTrue($missing['up']);
+        $this->assertSame(404, $missing['status_code']);
+        $this->assertNull($missing['error']);
+    }
+
     public function test_service_marks_http_500_as_down(): void
     {
         Http::fake([
@@ -38,21 +57,35 @@ class SiteHealthTest extends TestCase
         $result = app(SiteHealthService::class)->check('https://fail.example');
 
         $this->assertFalse($result['up']);
+        $this->assertFalse($result['retryable']);
         $this->assertSame(500, $result['status_code']);
         $this->assertSame('HTTP 500', $result['error']);
     }
 
-    public function test_service_marks_connection_error_as_down(): void
+    public function test_service_marks_timeout_as_retryable(): void
     {
         Http::fake(function () {
-            throw new ConnectionException('Connection timed out');
+            throw new ConnectionException('cURL error 28: Resolving timed out after 5001 milliseconds (see https://curl.haxx.se/libcurl/c/libcurl-errors.html) for https://profildoors-design.ru');
         });
 
         $result = app(SiteHealthService::class)->check('https://timeout.example');
 
         $this->assertFalse($result['up']);
-        $this->assertNull($result['status_code']);
-        $this->assertSame('Connection timed out', $result['error']);
+        $this->assertTrue($result['retryable']);
+        $this->assertSame('cURL error 28: Resolving timed out after 5001 milliseconds', $result['error']);
+    }
+
+    public function test_service_treats_self_signed_certificate_as_up(): void
+    {
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 60: SSL certificate problem: self-signed certificate');
+        });
+
+        $result = app(SiteHealthService::class)->check('https://selfsigned.example');
+
+        $this->assertTrue($result['up']);
+        $this->assertFalse($result['retryable']);
+        $this->assertNull($result['error']);
     }
 
     public function test_job_updates_domain_and_notifies_when_site_goes_down(): void
@@ -82,6 +115,60 @@ class SiteHealthTest extends TestCase
         $this->assertSame(503, $domain->health_status_code);
         $this->assertSame('down', $domain->last_health_notified_status);
         $this->assertNotNull($domain->last_health_checked_at);
+    }
+
+    public function test_job_retries_curl_errors_three_times_before_down(): void
+    {
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 28: Resolving timed out after 5001 milliseconds');
+        });
+
+        $domain = Domain::query()->create([
+            'domain' => 'flaky.example',
+            'health_check_enabled' => true,
+            'health_status' => 'up',
+        ]);
+
+        $telegram = Mockery::mock(TelegramService::class);
+        $telegram->shouldReceive('sendMessage')->once()->andReturn(true);
+        $this->app->instance(TelegramService::class, $telegram);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+        $domain->refresh();
+        $this->assertSame('up', $domain->health_status);
+        $this->assertSame(1, $domain->health_curl_fail_count);
+        $this->assertNull($domain->last_health_notified_status);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+        $domain->refresh();
+        $this->assertSame('up', $domain->health_status);
+        $this->assertSame(2, $domain->health_curl_fail_count);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+        $domain->refresh();
+        $this->assertSame('down', $domain->health_status);
+        $this->assertSame(3, $domain->health_curl_fail_count);
+        $this->assertSame('down', $domain->last_health_notified_status);
+        $this->assertStringContainsString('попытка 3/3', (string) $domain->last_health_error);
+    }
+
+    public function test_successful_check_resets_curl_fail_count(): void
+    {
+        Http::fake([
+            'https://ok.example' => Http::response('OK', 200),
+        ]);
+
+        $domain = Domain::query()->create([
+            'domain' => 'ok.example',
+            'health_check_enabled' => true,
+            'health_status' => 'up',
+            'health_curl_fail_count' => 2,
+        ]);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+
+        $this->assertSame(0, $domain->refresh()->health_curl_fail_count);
+        $this->assertSame('up', $domain->health_status);
     }
 
     public function test_command_checks_only_enabled_sites(): void

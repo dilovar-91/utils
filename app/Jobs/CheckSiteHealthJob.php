@@ -29,14 +29,52 @@ class CheckSiteHealthJob implements ShouldQueue
         $previousStatus = $domain->health_status ?? 'unknown';
         $result = $healthService->check($domain->getHealthCheckUrl());
 
-        $domain->health_status = $result['up'] ? 'up' : 'down';
+        if ($result['up']) {
+            $this->markChecked($domain, $result, 'up');
+            $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
+
+            return;
+        }
+
+        if (! $result['retryable']) {
+            $this->markChecked($domain, $result, 'down');
+            $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
+
+            return;
+        }
+
+        $limit = SiteHealthService::CURL_RETRY_LIMIT;
+        $attempt = min($domain->health_curl_fail_count + 1, $limit);
+
+        $domain->health_curl_fail_count = $attempt;
+        $domain->health_status_code = null;
+        $domain->health_response_time_ms = $result['response_time_ms'];
+        $domain->last_health_checked_at = now();
+        $domain->last_health_error = $healthService->formatCurlError((string) $result['error'], $attempt, $limit);
+
+        if ($attempt < $limit) {
+            $domain->save();
+
+            return;
+        }
+
+        $domain->health_status = 'down';
+        $domain->save();
+        $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
+    }
+
+    /**
+     * @param  array{up: bool, status_code: int|null, response_time_ms: int, error: string|null}  $result
+     */
+    protected function markChecked(Domain $domain, array $result, string $status): void
+    {
+        $domain->health_status = $status;
         $domain->health_status_code = $result['status_code'];
         $domain->health_response_time_ms = $result['response_time_ms'];
         $domain->last_health_checked_at = now();
         $domain->last_health_error = $result['error'];
+        $domain->health_curl_fail_count = 0;
         $domain->save();
-
-        $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
     }
 
     protected function notifyIfNeeded(
