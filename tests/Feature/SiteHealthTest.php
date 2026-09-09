@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\CheckSiteHealthJob;
 use App\Models\Domain;
+use App\Services\PublicDnsLookup;
 use App\Services\SiteHealthService;
 use App\Services\TelegramService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +16,15 @@ use Tests\TestCase;
 class SiteHealthTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->mock(PublicDnsLookup::class, function ($mock) {
+            $mock->shouldReceive('domainExists')->andReturn(true)->byDefault();
+        });
+    }
 
     public function test_service_marks_http_200_as_up(): void
     {
@@ -86,6 +96,67 @@ class SiteHealthTest extends TestCase
         $this->assertTrue($result['up']);
         $this->assertFalse($result['retryable']);
         $this->assertNull($result['error']);
+    }
+
+    public function test_nxdomain_is_down_without_http(): void
+    {
+        $this->mock(PublicDnsLookup::class, function ($mock) {
+            $mock->shouldReceive('domainExists')->with('bekmobil.ru')->andReturn(false);
+        });
+
+        Http::fake();
+
+        $result = app(SiteHealthService::class)->check('https://bekmobil.ru');
+
+        $this->assertFalse($result['up']);
+        $this->assertFalse($result['retryable']);
+        $this->assertSame('DNS NXDOMAIN', $result['error']);
+        Http::assertNothingSent();
+    }
+
+    public function test_curl_could_not_resolve_host_is_nxdomain(): void
+    {
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 6: Could not resolve host: gone.example');
+        });
+
+        $result = app(SiteHealthService::class)->check('https://gone.example');
+
+        $this->assertFalse($result['up']);
+        $this->assertFalse($result['retryable']);
+        $this->assertSame('DNS NXDOMAIN', $result['error']);
+    }
+
+    public function test_job_marks_nxdomain_down_immediately(): void
+    {
+        $this->mock(PublicDnsLookup::class, function ($mock) {
+            $mock->shouldReceive('domainExists')->andReturn(false);
+        });
+
+        Http::fake();
+
+        $domain = Domain::query()->create([
+            'domain' => 'bekmobil.ru',
+            'health_check_enabled' => true,
+            'health_status' => 'up',
+            'health_status_code' => 200,
+        ]);
+
+        $telegram = Mockery::mock(TelegramService::class);
+        $telegram->shouldReceive('sendMessage')
+            ->once()
+            ->withArgs(fn (string $message) => str_contains($message, 'DNS NXDOMAIN') && ! str_contains($message, '200'))
+            ->andReturn(true);
+        $this->app->instance(TelegramService::class, $telegram);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+
+        $domain->refresh();
+
+        $this->assertSame('down', $domain->health_status);
+        $this->assertNull($domain->health_status_code);
+        $this->assertSame('DNS NXDOMAIN', $domain->last_health_error);
+        $this->assertSame(0, $domain->health_curl_fail_count);
     }
 
     public function test_job_updates_domain_and_notifies_when_site_goes_down(): void

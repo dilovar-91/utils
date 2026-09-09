@@ -10,6 +10,8 @@ class SiteHealthService
 {
     public const CURL_RETRY_LIMIT = 3;
 
+    public function __construct(protected PublicDnsLookup $dnsLookup) {}
+
     /**
      * @return array{
      *     up: bool,
@@ -24,6 +26,22 @@ class SiteHealthService
     {
         $url = $this->normalizeUrl($url);
         $startedAt = microtime(true);
+        $host = parse_url($url, PHP_URL_HOST);
+
+        if (is_string($host) && $host !== '') {
+            $dns = $this->dnsLookup->domainExists($host);
+
+            if ($dns === false) {
+                return [
+                    'up' => false,
+                    'retryable' => false,
+                    'status_code' => null,
+                    'response_time_ms' => $this->elapsedMs($startedAt),
+                    'error' => 'DNS NXDOMAIN',
+                    'url' => $url,
+                ];
+            }
+        }
 
         try {
             $response = Http::timeout(20)
@@ -89,7 +107,11 @@ class SiteHealthService
             'retryable' => $kind === 'retryable',
             'status_code' => null,
             'response_time_ms' => $this->elapsedMs($startedAt),
-            'error' => $kind === 'ssl' ? null : $error,
+            'error' => match ($kind) {
+                'ssl' => null,
+                'dns' => 'DNS NXDOMAIN',
+                default => $error,
+            },
             'url' => $url,
         ];
     }
@@ -105,13 +127,17 @@ class SiteHealthService
 
     protected function curlErrorKind(Throwable $exception, string $error): string
     {
+        if (preg_match('/cURL error 6\b/i', $error) || str_contains($error, 'Could not resolve host')) {
+            return 'dns';
+        }
+
         if (preg_match('/cURL error (51|60|83)\b/i', $error) || str_contains(strtolower($error), 'ssl certificate')) {
             return 'ssl';
         }
 
         if (
             $exception instanceof ConnectionException
-            || preg_match('/cURL error (6|7|28|35)\b/i', $error)
+            || preg_match('/cURL error (7|28|35)\b/i', $error)
             || str_contains(strtolower($error), 'timed out')
             || str_contains(strtolower($error), 'timeout')
         ) {
