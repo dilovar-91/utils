@@ -46,12 +46,24 @@ class SiteHealthService
         try {
             $response = Http::timeout(20)
                 ->connectTimeout(15)
-                ->withUserAgent('DAS-Utils HealthCheck/1.0')
+                ->withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36')
+                ->withHeaders([
+                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language' => 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                ])
+                ->withRequestMiddleware(function ($request) {
+                    return $request->withoutHeader('Content-Type');
+                })
                 ->withOptions([
                     'http_errors' => false,
                     'allow_redirects' => true,
                     'verify' => false,
                     'force_ip_resolve' => 'v4',
+                    'version' => 1.1,
+                    'curl' => [
+                        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                        CURLOPT_ENCODING => '',
+                    ],
                 ])
                 ->get($url);
 
@@ -122,7 +134,7 @@ class SiteHealthService
             return true;
         }
 
-        return in_array($statusCode, [403, 404], true);
+        return in_array($statusCode, [401, 403, 404, 405, 429, 500], true);
     }
 
     protected function curlErrorKind(Throwable $exception, string $error): string

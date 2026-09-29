@@ -58,7 +58,34 @@ class SiteHealthTest extends TestCase
         $this->assertNull($missing['error']);
     }
 
-    public function test_service_marks_http_500_as_down(): void
+    public function test_job_treats_http_500_as_up_without_alert(): void
+    {
+        Http::fake([
+            'https://profildoors-design.ru' => Http::response('Error', 500),
+        ]);
+
+        $domain = Domain::query()->create([
+            'domain' => 'profildoors-design.ru',
+            'health_check_enabled' => true,
+            'health_status' => 'up',
+            'health_status_code' => 200,
+        ]);
+
+        $telegram = Mockery::mock(TelegramService::class);
+        $telegram->shouldReceive('sendMessage')->never();
+        $this->app->instance(TelegramService::class, $telegram);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+
+        $domain->refresh();
+
+        $this->assertSame('up', $domain->health_status);
+        $this->assertSame(500, $domain->health_status_code);
+        $this->assertNull($domain->last_health_error);
+        $this->assertNull($domain->last_health_notified_status);
+    }
+
+    public function test_service_treats_http_500_as_up(): void
     {
         Http::fake([
             'https://fail.example' => Http::response('Error', 500),
@@ -66,10 +93,24 @@ class SiteHealthTest extends TestCase
 
         $result = app(SiteHealthService::class)->check('https://fail.example');
 
-        $this->assertFalse($result['up']);
+        $this->assertTrue($result['up']);
         $this->assertFalse($result['retryable']);
         $this->assertSame(500, $result['status_code']);
-        $this->assertSame('HTTP 500', $result['error']);
+        $this->assertNull($result['error']);
+    }
+
+    public function test_service_marks_http_503_as_down(): void
+    {
+        Http::fake([
+            'https://fail.example' => Http::response('Error', 503),
+        ]);
+
+        $result = app(SiteHealthService::class)->check('https://fail.example');
+
+        $this->assertFalse($result['up']);
+        $this->assertFalse($result['retryable']);
+        $this->assertSame(503, $result['status_code']);
+        $this->assertSame('HTTP 503', $result['error']);
     }
 
     public function test_service_marks_timeout_as_retryable(): void
