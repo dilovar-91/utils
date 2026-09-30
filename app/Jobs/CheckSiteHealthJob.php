@@ -27,7 +27,7 @@ class CheckSiteHealthJob implements ShouldQueue
         }
 
         $previousStatus = $domain->health_status ?? 'unknown';
-        $result = $healthService->check($domain->getHealthCheckUrl());
+        $result = $healthService->checkWithRetries($domain->getHealthCheckUrl());
 
         if ($result['up']) {
             $this->markChecked($domain, $result, 'up');
@@ -44,22 +44,16 @@ class CheckSiteHealthJob implements ShouldQueue
         }
 
         $limit = SiteHealthService::CURL_RETRY_LIMIT;
-        $attempt = min($domain->health_curl_fail_count + 1, $limit);
+        $attempt = min($result['attempt'] ?? $limit, $limit);
 
-        $domain->health_curl_fail_count = $attempt;
+        $domain->health_status = 'down';
         $domain->health_status_code = null;
         $domain->health_response_time_ms = $result['response_time_ms'];
         $domain->last_health_checked_at = now();
         $domain->last_health_error = $healthService->formatCurlError((string) $result['error'], $attempt, $limit);
-
-        if ($attempt < $limit) {
-            $domain->save();
-
-            return;
-        }
-
-        $domain->health_status = 'down';
+        $domain->health_curl_fail_count = $attempt;
         $domain->save();
+
         $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
     }
 

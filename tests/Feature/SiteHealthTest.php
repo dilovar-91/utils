@@ -172,6 +172,21 @@ class SiteHealthTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_check_with_retries_makes_three_attempts_within_window(): void
+    {
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 6: Could not resolve host: gone.example');
+        });
+
+        $result = app(SiteHealthService::class)->checkWithRetries('https://gone.example');
+
+        $this->assertFalse($result['up']);
+        $this->assertTrue($result['retryable']);
+        $this->assertSame(3, $result['attempt']);
+        $this->assertSame('Could not resolve host', $result['error']);
+        $this->assertLessThan(SiteHealthService::RETRY_WINDOW_SECONDS, $result['response_time_ms'] / 1000);
+    }
+
     public function test_curl_could_not_resolve_host_is_retryable(): void
     {
         Http::fake(function () {
@@ -206,19 +221,9 @@ class SiteHealthTest extends TestCase
         $this->app->instance(TelegramService::class, $telegram);
 
         CheckSiteHealthJob::dispatchSync($domain->id);
-        $domain->refresh();
-        $this->assertSame('up', $domain->health_status);
-        $this->assertSame(1, $domain->health_curl_fail_count);
-        $this->assertNull($domain->last_health_notified_status);
-        $this->assertStringContainsString('Could not resolve host', (string) $domain->last_health_error);
 
-        CheckSiteHealthJob::dispatchSync($domain->id);
         $domain->refresh();
-        $this->assertSame('up', $domain->health_status);
-        $this->assertSame(2, $domain->health_curl_fail_count);
 
-        CheckSiteHealthJob::dispatchSync($domain->id);
-        $domain->refresh();
         $this->assertSame('down', $domain->health_status);
         $this->assertSame(3, $domain->health_curl_fail_count);
         $this->assertSame('down', $domain->last_health_notified_status);
@@ -272,22 +277,45 @@ class SiteHealthTest extends TestCase
         $this->app->instance(TelegramService::class, $telegram);
 
         CheckSiteHealthJob::dispatchSync($domain->id);
-        $domain->refresh();
-        $this->assertSame('up', $domain->health_status);
-        $this->assertSame(1, $domain->health_curl_fail_count);
-        $this->assertNull($domain->last_health_notified_status);
 
-        CheckSiteHealthJob::dispatchSync($domain->id);
-        $domain->refresh();
-        $this->assertSame('up', $domain->health_status);
-        $this->assertSame(2, $domain->health_curl_fail_count);
-
-        CheckSiteHealthJob::dispatchSync($domain->id);
         $domain->refresh();
         $this->assertSame('down', $domain->health_status);
         $this->assertSame(3, $domain->health_curl_fail_count);
         $this->assertSame('down', $domain->last_health_notified_status);
         $this->assertStringContainsString('попытка 3/3', (string) $domain->last_health_error);
+    }
+
+    public function test_retry_recovers_within_window_without_alert(): void
+    {
+        $attempts = 0;
+
+        Http::fake(function () use (&$attempts) {
+            $attempts++;
+
+            if ($attempts < 3) {
+                throw new ConnectionException('cURL error 6: Could not resolve host: flaky.example');
+            }
+
+            return Http::response('OK', 200);
+        });
+
+        $domain = Domain::query()->create([
+            'domain' => 'flaky.example',
+            'health_check_enabled' => true,
+            'health_status' => 'up',
+        ]);
+
+        $telegram = Mockery::mock(TelegramService::class);
+        $telegram->shouldReceive('sendMessage')->never();
+        $this->app->instance(TelegramService::class, $telegram);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+
+        $domain->refresh();
+        $this->assertSame('up', $domain->health_status);
+        $this->assertSame(0, $domain->health_curl_fail_count);
+        $this->assertNull($domain->last_health_notified_status);
+        $this->assertSame(3, $attempts);
     }
 
     public function test_successful_check_resets_curl_fail_count(): void

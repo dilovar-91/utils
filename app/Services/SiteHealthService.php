@@ -10,6 +10,8 @@ class SiteHealthService
 {
     public const CURL_RETRY_LIMIT = 3;
 
+    public const RETRY_WINDOW_SECONDS = 90;
+
     public const ERROR_BODY_LIMIT = 1000;
 
     public const TELEGRAM_BODY_LIMIT = 180;
@@ -96,6 +98,40 @@ class SiteHealthService
         } catch (Throwable $exception) {
             return $this->classifyException($url, $startedAt, $exception);
         }
+    }
+
+    /**
+     * @return array{
+     *     up: bool,
+     *     retryable: bool,
+     *     status_code: int|null,
+     *     response_time_ms: int,
+     *     error: string|null,
+     *     url: string,
+     *     attempt: int
+     * }
+     */
+    public function checkWithRetries(string $url): array
+    {
+        $windowStartedAt = microtime(true);
+        $attempt = 0;
+        $result = null;
+
+        do {
+            $attempt++;
+            $result = $this->check($url);
+
+            if ($result['up'] || ! $result['retryable']) {
+                break;
+            }
+        } while (
+            $attempt < self::CURL_RETRY_LIMIT
+            && (microtime(true) - $windowStartedAt) < self::RETRY_WINDOW_SECONDS
+        );
+
+        $result['attempt'] = $attempt;
+
+        return $result;
     }
 
     public function telegramErrorSnippet(?string $error): string
