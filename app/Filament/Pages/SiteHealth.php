@@ -120,7 +120,9 @@ class SiteHealth extends Page implements HasTable
 
                 TextColumn::make('last_health_error')
                     ->label('Ошибка')
-                    ->limit(60)
+                    ->limit(80)
+                    ->wrap()
+                    ->tooltip(fn (Domain $record): ?string => $record->last_health_error)
                     ->placeholder('-')
                     ->toggleable(),
             ])

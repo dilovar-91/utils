@@ -10,6 +10,10 @@ class SiteHealthService
 {
     public const CURL_RETRY_LIMIT = 3;
 
+    public const ERROR_BODY_LIMIT = 1000;
+
+    public const TELEGRAM_BODY_LIMIT = 180;
+
     public function __construct(protected PublicDnsLookup $dnsLookup) {}
 
     /**
@@ -34,10 +38,10 @@ class SiteHealthService
             if ($dns === false) {
                 return [
                     'up' => false,
-                    'retryable' => false,
+                    'retryable' => true,
                     'status_code' => null,
                     'response_time_ms' => $this->elapsedMs($startedAt),
-                    'error' => 'DNS NXDOMAIN',
+                    'error' => 'Could not resolve host',
                     'url' => $url,
                 ];
             }
@@ -86,12 +90,23 @@ class SiteHealthService
                 'retryable' => false,
                 'status_code' => $statusCode,
                 'response_time_ms' => $elapsedMs,
-                'error' => "HTTP {$statusCode}",
+                'error' => $this->formatHttpError($statusCode, $response->body()),
                 'url' => $url,
             ];
         } catch (Throwable $exception) {
             return $this->classifyException($url, $startedAt, $exception);
         }
+    }
+
+    public function telegramErrorSnippet(?string $error): string
+    {
+        $error = trim((string) $error);
+
+        if ($error === '') {
+            return '-';
+        }
+
+        return $this->truncate($error, self::TELEGRAM_BODY_LIMIT);
     }
 
     public function formatCurlError(string $error, int $attempt, int $limit = self::CURL_RETRY_LIMIT): string
@@ -116,12 +131,12 @@ class SiteHealthService
 
         return [
             'up' => $kind === 'ssl',
-            'retryable' => $kind === 'retryable',
+            'retryable' => in_array($kind, ['retryable', 'dns'], true),
             'status_code' => null,
             'response_time_ms' => $this->elapsedMs($startedAt),
             'error' => match ($kind) {
                 'ssl' => null,
-                'dns' => 'DNS NXDOMAIN',
+                'dns' => 'Could not resolve host',
                 default => $error,
             },
             'url' => $url,
@@ -134,7 +149,48 @@ class SiteHealthService
             return true;
         }
 
-        return in_array($statusCode, [401, 403, 404, 405, 429, 500], true);
+        return in_array($statusCode, [403, 404], true);
+    }
+
+    protected function formatHttpError(int $statusCode, string $body): string
+    {
+        $snippet = $this->extractResponseText($body, self::ERROR_BODY_LIMIT);
+
+        if ($snippet === null) {
+            return "HTTP {$statusCode}";
+        }
+
+        return "HTTP {$statusCode}: {$snippet}";
+    }
+
+    protected function extractResponseText(string $body, int $limit): ?string
+    {
+        $body = trim($body);
+
+        if ($body === '') {
+            return null;
+        }
+
+        $body = preg_replace('#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $body) ?? $body;
+        $body = preg_replace('/<[^>]+>/u', ' ', $body) ?? $body;
+        $text = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+        $text = trim($text);
+
+        if ($text === '') {
+            return null;
+        }
+
+        return $this->truncate($text, $limit);
+    }
+
+    protected function truncate(string $text, int $limit): string
+    {
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        return rtrim(mb_substr($text, 0, $limit - 1)).'…';
     }
 
     protected function curlErrorKind(Throwable $exception, string $error): string

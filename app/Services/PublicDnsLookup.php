@@ -71,6 +71,11 @@ class PublicDnsLookup
             return false;
         }
 
+        // SERVFAIL: NS недоступны, часто выключенный VPS
+        if ($rcode === 2) {
+            return false;
+        }
+
         if ($rcode !== 0) {
             return null;
         }

@@ -31,14 +31,14 @@ class CheckSiteHealthJob implements ShouldQueue
 
         if ($result['up']) {
             $this->markChecked($domain, $result, 'up');
-            $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
+            $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
 
             return;
         }
 
         if (! $result['retryable']) {
             $this->markChecked($domain, $result, 'down');
-            $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
+            $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
 
             return;
         }
@@ -60,7 +60,7 @@ class CheckSiteHealthJob implements ShouldQueue
 
         $domain->health_status = 'down';
         $domain->save();
-        $this->notifyIfNeeded($domain, $previousStatus, $telegramService);
+        $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
     }
 
     /**
@@ -80,7 +80,8 @@ class CheckSiteHealthJob implements ShouldQueue
     protected function notifyIfNeeded(
         Domain $domain,
         string $previousStatus,
-        TelegramService $telegramService
+        TelegramService $telegramService,
+        SiteHealthService $healthService
     ): void {
         $status = $domain->health_status;
 
@@ -95,20 +96,15 @@ class CheckSiteHealthJob implements ShouldQueue
         if ($status === 'down') {
             $message = implode("\n", [
                 '🔴 <b>Сайт недоступен</b>',
-                '',
-                'Сайт: <b>'.e($domain->domain).'</b>',
-                'URL: '.e($domain->getHealthCheckUrl()),
-                'Код ответа: <b>'.e((string) ($domain->health_status_code ?? '-')).'</b>',
-                'Ошибка: <b>'.e($domain->last_health_error ?? '-').'</b>',
+                e($domain->domain),
+                'Код: <b>'.e((string) ($domain->health_status_code ?? '-')).'</b>',
+                e($healthService->telegramErrorSnippet($domain->last_health_error)),
             ]);
         } else {
             $message = implode("\n", [
                 '🟢 <b>Сайт снова доступен</b>',
-                '',
-                'Сайт: <b>'.e($domain->domain).'</b>',
-                'URL: '.e($domain->getHealthCheckUrl()),
-                'Код ответа: <b>'.e((string) ($domain->health_status_code ?? '-')).'</b>',
-                'Время ответа: <b>'.e((string) ($domain->health_response_time_ms ?? '-')).' мс</b>',
+                e($domain->domain),
+                'Код: <b>'.e((string) ($domain->health_status_code ?? '-')).'</b>',
             ]);
         }
 

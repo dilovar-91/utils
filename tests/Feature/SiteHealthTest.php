@@ -58,10 +58,33 @@ class SiteHealthTest extends TestCase
         $this->assertNull($missing['error']);
     }
 
-    public function test_job_treats_http_500_as_up_without_alert(): void
+    public function test_service_marks_http_500_as_down_and_keeps_body_text(): void
     {
         Http::fake([
-            'https://profildoors-design.ru' => Http::response('Error', 500),
+            'https://fail.example' => Http::response(
+                '<html><body><h1>Error</h1><p>Allowed memory size of 134217728 bytes exhausted</p></body></html>',
+                500
+            ),
+        ]);
+
+        $result = app(SiteHealthService::class)->check('https://fail.example');
+
+        $this->assertFalse($result['up']);
+        $this->assertFalse($result['retryable']);
+        $this->assertSame(500, $result['status_code']);
+        $this->assertSame(
+            'HTTP 500: Error Allowed memory size of 134217728 bytes exhausted',
+            $result['error']
+        );
+    }
+
+    public function test_job_notifies_telegram_with_short_500_body(): void
+    {
+        Http::fake([
+            'https://profildoors-design.ru' => Http::response(
+                '<br /><b>Fatal error</b>: Allowed memory size of 134217728 bytes exhausted (tried to allocate 65536 bytes)',
+                500
+            ),
         ]);
 
         $domain = Domain::query()->create([
@@ -72,31 +95,25 @@ class SiteHealthTest extends TestCase
         ]);
 
         $telegram = Mockery::mock(TelegramService::class);
-        $telegram->shouldReceive('sendMessage')->never();
+        $telegram->shouldReceive('sendMessage')
+            ->once()
+            ->withArgs(function (string $message) {
+                return str_contains($message, 'profildoors-design.ru')
+                    && str_contains($message, '500')
+                    && str_contains($message, 'Allowed memory size of 134217728 bytes exhausted')
+                    && ! str_contains($message, '<br');
+            })
+            ->andReturn(true);
         $this->app->instance(TelegramService::class, $telegram);
 
         CheckSiteHealthJob::dispatchSync($domain->id);
 
         $domain->refresh();
 
-        $this->assertSame('up', $domain->health_status);
+        $this->assertSame('down', $domain->health_status);
         $this->assertSame(500, $domain->health_status_code);
-        $this->assertNull($domain->last_health_error);
-        $this->assertNull($domain->last_health_notified_status);
-    }
-
-    public function test_service_treats_http_500_as_up(): void
-    {
-        Http::fake([
-            'https://fail.example' => Http::response('Error', 500),
-        ]);
-
-        $result = app(SiteHealthService::class)->check('https://fail.example');
-
-        $this->assertTrue($result['up']);
-        $this->assertFalse($result['retryable']);
-        $this->assertSame(500, $result['status_code']);
-        $this->assertNull($result['error']);
+        $this->assertStringContainsString('Allowed memory size', (string) $domain->last_health_error);
+        $this->assertSame('down', $domain->last_health_notified_status);
     }
 
     public function test_service_marks_http_503_as_down(): void
@@ -110,7 +127,7 @@ class SiteHealthTest extends TestCase
         $this->assertFalse($result['up']);
         $this->assertFalse($result['retryable']);
         $this->assertSame(503, $result['status_code']);
-        $this->assertSame('HTTP 503', $result['error']);
+        $this->assertSame('HTTP 503: Error', $result['error']);
     }
 
     public function test_service_marks_timeout_as_retryable(): void
@@ -150,12 +167,12 @@ class SiteHealthTest extends TestCase
         $result = app(SiteHealthService::class)->check('https://bekmobil.ru');
 
         $this->assertFalse($result['up']);
-        $this->assertFalse($result['retryable']);
-        $this->assertSame('DNS NXDOMAIN', $result['error']);
+        $this->assertTrue($result['retryable']);
+        $this->assertSame('Could not resolve host', $result['error']);
         Http::assertNothingSent();
     }
 
-    public function test_curl_could_not_resolve_host_is_nxdomain(): void
+    public function test_curl_could_not_resolve_host_is_retryable(): void
     {
         Http::fake(function () {
             throw new ConnectionException('cURL error 6: Could not resolve host: gone.example');
@@ -164,40 +181,49 @@ class SiteHealthTest extends TestCase
         $result = app(SiteHealthService::class)->check('https://gone.example');
 
         $this->assertFalse($result['up']);
-        $this->assertFalse($result['retryable']);
-        $this->assertSame('DNS NXDOMAIN', $result['error']);
+        $this->assertTrue($result['retryable']);
+        $this->assertSame('Could not resolve host', $result['error']);
     }
 
-    public function test_job_marks_nxdomain_down_immediately(): void
+    public function test_job_retries_could_not_resolve_host_three_times_before_notify(): void
     {
-        $this->mock(PublicDnsLookup::class, function ($mock) {
-            $mock->shouldReceive('domainExists')->andReturn(false);
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 6: Could not resolve host: offline.example');
         });
 
-        Http::fake();
-
         $domain = Domain::query()->create([
-            'domain' => 'bekmobil.ru',
+            'domain' => 'offline.example',
             'health_check_enabled' => true,
             'health_status' => 'up',
-            'health_status_code' => 200,
         ]);
 
         $telegram = Mockery::mock(TelegramService::class);
         $telegram->shouldReceive('sendMessage')
             ->once()
-            ->withArgs(fn (string $message) => str_contains($message, 'DNS NXDOMAIN') && ! str_contains($message, '200'))
+            ->withArgs(fn (string $message) => str_contains($message, 'offline.example')
+                && str_contains($message, 'Could not resolve host'))
             ->andReturn(true);
         $this->app->instance(TelegramService::class, $telegram);
 
         CheckSiteHealthJob::dispatchSync($domain->id);
-
         $domain->refresh();
+        $this->assertSame('up', $domain->health_status);
+        $this->assertSame(1, $domain->health_curl_fail_count);
+        $this->assertNull($domain->last_health_notified_status);
+        $this->assertStringContainsString('Could not resolve host', (string) $domain->last_health_error);
 
+        CheckSiteHealthJob::dispatchSync($domain->id);
+        $domain->refresh();
+        $this->assertSame('up', $domain->health_status);
+        $this->assertSame(2, $domain->health_curl_fail_count);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+        $domain->refresh();
         $this->assertSame('down', $domain->health_status);
-        $this->assertNull($domain->health_status_code);
-        $this->assertSame('DNS NXDOMAIN', $domain->last_health_error);
-        $this->assertSame(0, $domain->health_curl_fail_count);
+        $this->assertSame(3, $domain->health_curl_fail_count);
+        $this->assertSame('down', $domain->last_health_notified_status);
+        $this->assertStringContainsString('Could not resolve host', (string) $domain->last_health_error);
+        $this->assertStringContainsString('попытка 3/3', (string) $domain->last_health_error);
     }
 
     public function test_job_updates_domain_and_notifies_when_site_goes_down(): void
