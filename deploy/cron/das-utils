@@ -1,7 +1,6 @@
-# Путь и пользователь замените на свои.
 # Файл кладётся в /etc/cron.d/das-utils
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-*/15 * * * * www-data cd /var/www/das-utils && /usr/bin/php artisan app:check-sites-health >> /var/www/das-utils/storage/logs/site-health.log 2>&1
-0 9 * * * www-data cd /var/www/das-utils && /usr/bin/php artisan app:check-domains-whois >> /var/www/das-utils/storage/logs/whois.log 2>&1
+*/15 * * * * user cd /home/user/web/autodon-review.online/public_html && /usr/bin/php artisan app:check-sites-health >> /home/user/web/autodon-review.online/public_html/storage/logs/site-health.log 2>&1
+0 9 * * * user cd /home/user/web/autodon-review.online/public_html && /usr/bin/php artisan app:check-domains-whois >> /home/user/web/autodon-review.online/public_html/storage/logs/whois.log 2>&1
