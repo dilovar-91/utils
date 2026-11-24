@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\Domain;
-use App\Services\TelegramService;
+use App\Services\AlertNotifier;
 use App\Services\WhoisService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -20,7 +20,7 @@ class CheckDomainWhoisJob implements ShouldQueue
 
     public function handle(
         WhoisService $whoisService,
-        TelegramService $telegramService
+        AlertNotifier $notifier
     ): void {
         $domain = Domain::find($this->domainId);
 
@@ -63,13 +63,13 @@ class CheckDomainWhoisJob implements ShouldQueue
 
         $domain->save();
 
-        $this->notifyIfNeeded($domain, $daysLeft, $telegramService);
+        $this->notifyIfNeeded($domain, $daysLeft, $notifier);
     }
 
     protected function notifyIfNeeded(
         Domain $domain,
         int $daysLeft,
-        TelegramService $telegramService
+        AlertNotifier $notifier
     ): void {
         if ($daysLeft >= 30) {
             return;
@@ -92,7 +92,7 @@ class CheckDomainWhoisJob implements ShouldQueue
                 'Регистратор: <b>' . e($domain->registrar ?? '-') . '</b>',
             ]);
 
-            if ($telegramService->sendMessage($message)) {
+            if ($notifier->send($message)) {
                 $domain->update([
                     'last_expiry_notified_at' => now(),
                     'last_expiry_notified_days' => -1,
@@ -118,7 +118,7 @@ class CheckDomainWhoisJob implements ShouldQueue
             'Истекает: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
             'Регистратор: <b>' . e($domain->registrar ?? '-') . '</b>',
         ]);
-        if ($telegramService->sendMessage($message)) {
+        if ($notifier->send($message)) {
             $domain->update([
                 'last_expiry_notified_at' => now(),
                 'last_expiry_notified_days' => $daysLeft,

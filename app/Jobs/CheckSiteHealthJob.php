@@ -3,8 +3,8 @@
 namespace App\Jobs;
 
 use App\Models\Domain;
+use App\Services\AlertNotifier;
 use App\Services\SiteHealthService;
-use App\Services\TelegramService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -18,7 +18,7 @@ class CheckSiteHealthJob implements ShouldQueue
 
     public function handle(
         SiteHealthService $healthService,
-        TelegramService $telegramService
+        AlertNotifier $notifier
     ): void {
         $domain = Domain::find($this->domainId);
 
@@ -31,14 +31,14 @@ class CheckSiteHealthJob implements ShouldQueue
 
         if ($result['up']) {
             $this->markChecked($domain, $result, 'up');
-            $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
+            $this->notifyIfNeeded($domain, $previousStatus, $notifier, $healthService);
 
             return;
         }
 
         if (! $result['retryable']) {
             $this->markChecked($domain, $result, 'down');
-            $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
+            $this->notifyIfNeeded($domain, $previousStatus, $notifier, $healthService);
 
             return;
         }
@@ -54,7 +54,7 @@ class CheckSiteHealthJob implements ShouldQueue
         $domain->health_curl_fail_count = $attempt;
         $domain->save();
 
-        $this->notifyIfNeeded($domain, $previousStatus, $telegramService, $healthService);
+        $this->notifyIfNeeded($domain, $previousStatus, $notifier, $healthService);
     }
 
     /**
@@ -74,7 +74,7 @@ class CheckSiteHealthJob implements ShouldQueue
     protected function notifyIfNeeded(
         Domain $domain,
         string $previousStatus,
-        TelegramService $telegramService,
+        AlertNotifier $notifier,
         SiteHealthService $healthService
     ): void {
         $status = $domain->health_status;
@@ -102,7 +102,7 @@ class CheckSiteHealthJob implements ShouldQueue
             ]);
         }
 
-        if ($telegramService->sendMessage($message)) {
+        if ($notifier->send($message)) {
             $domain->update([
                 'last_health_notified_at' => now(),
                 'last_health_notified_status' => $status,
