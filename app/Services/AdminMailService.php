@@ -25,8 +25,18 @@ class AdminMailService
 
             return true;
         } catch (Throwable $exception) {
-            Log::warning('Admin email notification failed', [
-                'error' => $exception->getMessage(),
+            $error = $exception->getMessage();
+            $password = (string) config('mail.mailers.smtp.password');
+
+            if ($password !== '') {
+                $error = str_replace($password, '[redacted]', $error);
+            }
+
+            Log::warning('Admin email notification failed: '.$error, [
+                'mailer' => config('mail.default'),
+                'host' => config('mail.mailers.smtp.host'),
+                'port' => config('mail.mailers.smtp.port'),
+                'from' => config('mail.from.address'),
             ]);
 
             return false;
