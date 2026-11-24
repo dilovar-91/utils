@@ -99,6 +99,39 @@ class AdminAlertMailTest extends TestCase
         CheckSiteHealthJob::dispatchSync($domain->id);
 
         Mail::assertSent(AdminAlertMail::class);
-        $this->assertSame('down', $domain->refresh()->last_health_notified_status);
+
+        $domain->refresh();
+        $this->assertNull($domain->last_health_notified_status);
+        $this->assertSame('down', $domain->last_health_mailed_status);
+    }
+
+    public function test_down_site_emails_again_when_previous_mail_was_not_sent(): void
+    {
+        config(['mail.admin' => 'dilovar09@gmail.com']);
+        Mail::fake();
+
+        Http::fake([
+            'https://down.example' => Http::response('Error', 503),
+        ]);
+
+        $domain = Domain::query()->create([
+            'domain' => 'down.example',
+            'health_check_enabled' => true,
+            'health_status' => 'down',
+            'health_status_code' => 503,
+            'last_health_notified_status' => 'down',
+        ]);
+
+        $telegram = Mockery::mock(TelegramService::class);
+        $telegram->shouldReceive('sendMessage')->never();
+        $this->app->instance(TelegramService::class, $telegram);
+
+        CheckSiteHealthJob::dispatchSync($domain->id);
+
+        Mail::assertSent(AdminAlertMail::class, function (AdminAlertMail $mail) {
+            return $mail->hasTo('dilovar09@gmail.com')
+                && str_contains($mail->htmlBody, 'down.example');
+        });
+        $this->assertSame('down', $domain->refresh()->last_health_mailed_status);
     }
 }

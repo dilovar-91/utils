@@ -79,11 +79,14 @@ class CheckSiteHealthJob implements ShouldQueue
     ): void {
         $status = $domain->health_status;
 
-        if ($status === $previousStatus) {
-            return;
-        }
+        $telegramDue = $status !== $previousStatus
+            && ! ($status === 'up' && $previousStatus !== 'down');
 
-        if ($status === 'up' && $previousStatus !== 'down') {
+        $mailDue = ($status === 'down' && $domain->last_health_mailed_status !== 'down')
+            || ($status === 'up' && $previousStatus === 'down')
+            || ($status === 'up' && $domain->last_health_mailed_status === 'down');
+
+        if (! $telegramDue && ! $mailDue) {
             return;
         }
 
@@ -102,11 +105,19 @@ class CheckSiteHealthJob implements ShouldQueue
             ]);
         }
 
-        if ($notifier->send($message)) {
-            $domain->update([
-                'last_health_notified_at' => now(),
-                'last_health_notified_status' => $status,
-            ]);
+        $updates = [];
+
+        if ($telegramDue && $notifier->sendTelegram($message)) {
+            $updates['last_health_notified_at'] = now();
+            $updates['last_health_notified_status'] = $status;
+        }
+
+        if ($mailDue && $notifier->sendMail($message)) {
+            $updates['last_health_mailed_status'] = $status;
+        }
+
+        if ($updates !== []) {
+            $domain->update($updates);
         }
     }
 }

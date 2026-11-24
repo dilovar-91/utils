@@ -14,6 +14,8 @@ class AdminMailService
         $recipients = $this->recipients();
 
         if ($recipients === []) {
+            Log::warning('Admin email notification skipped: MAIL_TO_ADMIN is empty');
+
             return false;
         }
 

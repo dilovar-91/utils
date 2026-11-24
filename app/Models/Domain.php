@@ -15,6 +15,8 @@ class Domain extends Model
         'last_checked_at',
         'last_expiry_notified_at',
         'last_expiry_notified_days',
+        'last_expiry_mailed_at',
+        'last_expiry_mailed_days',
         'status',
         'last_error',
         'health_check_enabled',
@@ -27,12 +29,15 @@ class Domain extends Model
         'health_curl_fail_count',
         'last_health_notified_at',
         'last_health_notified_status',
+        'last_health_mailed_status',
     ];
 
     protected $casts = [
         'expires_at' => 'datetime',
         'last_checked_at' => 'datetime',
         'last_expiry_notified_at' => 'datetime',
+        'last_expiry_mailed_at' => 'datetime',
+        'last_expiry_mailed_days' => 'integer',
         'health_check_enabled' => 'boolean',
         'health_curl_fail_count' => 'integer',
         'last_health_checked_at' => 'datetime',

@@ -9,11 +9,13 @@ class AlertNotifier
         private AdminMailService $mail,
     ) {}
 
-    public function send(string $message): bool
+    public function sendTelegram(string $message): bool
     {
-        $telegramSent = $this->telegram->sendMessage($message);
-        $mailSent = $this->mail->send($message);
+        return $this->telegram->sendMessage($message);
+    }
 
-        return $telegramSent || $mailSent;
+    public function sendMail(string $message): bool
+    {
+        return $this->mail->send($message);
     }
 }

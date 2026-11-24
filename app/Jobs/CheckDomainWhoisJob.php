@@ -51,7 +51,7 @@ class CheckDomainWhoisJob implements ShouldQueue
             return;
         }
 
-        $daysLeft = now()->diffInDays($domain->expires_at, false);
+        $daysLeft = (int) now()->diffInDays($domain->expires_at, false);
 
         if ($daysLeft < 0) {
             $domain->status = 'expired';
@@ -75,54 +75,53 @@ class CheckDomainWhoisJob implements ShouldQueue
             return;
         }
 
-        // если уже истек
-        if ($daysLeft < 0) {
-            $alreadySent = $domain->last_expiry_notified_days === -1
-                && $domain->last_expiry_notified_at?->isToday();
+        $marker = $daysLeft < 0 ? -1 : $daysLeft;
 
-            if ($alreadySent) {
-                return;
-            }
+        $telegramDue = ! (
+            $domain->last_expiry_notified_days === $marker
+            && $domain->last_expiry_notified_at?->isToday()
+        );
 
-            $message = implode("\n", [
+        $mailDue = ! (
+            $domain->last_expiry_mailed_days === $marker
+            && $domain->last_expiry_mailed_at?->isToday()
+        );
+
+        if (! $telegramDue && ! $mailDue) {
+            return;
+        }
+
+        $message = $daysLeft < 0
+            ? implode("\n", [
                 '🚨 <b>Домен истёк</b>',
                 '',
-                'Домен: <b>' . e($domain->domain) . '</b>',
-                'Дата истечения: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
-                'Регистратор: <b>' . e($domain->registrar ?? '-') . '</b>',
+                'Домен: <b>'.e($domain->domain).'</b>',
+                'Дата истечения: <b>'.optional($domain->expires_at)->format('Y-m-d H:i').'</b>',
+                'Регистратор: <b>'.e($domain->registrar ?? '-').'</b>',
+            ])
+            : implode("\n", [
+                '⚠️ <b>Срок действия домена скоро истекает</b>',
+                '',
+                'Домен: <b>'.e($domain->domain).'</b>',
+                'Осталось дней: <b>'.$daysLeft.'</b>',
+                'Истекает: <b>'.optional($domain->expires_at)->format('Y-m-d H:i').'</b>',
+                'Регистратор: <b>'.e($domain->registrar ?? '-').'</b>',
             ]);
 
-            if ($notifier->send($message)) {
-                $domain->update([
-                    'last_expiry_notified_at' => now(),
-                    'last_expiry_notified_days' => -1,
-                ]);
-            }
+        $updates = [];
 
-            return;
+        if ($telegramDue && $notifier->sendTelegram($message)) {
+            $updates['last_expiry_notified_at'] = now();
+            $updates['last_expiry_notified_days'] = $marker;
         }
 
-        // если меньше 8 дней: отправляем 1 раз в день
-        $alreadySentToday = $domain->last_expiry_notified_at?->isToday()
-            && $domain->last_expiry_notified_days === $daysLeft;
-
-        if ($alreadySentToday) {
-            return;
+        if ($mailDue && $notifier->sendMail($message)) {
+            $updates['last_expiry_mailed_at'] = now();
+            $updates['last_expiry_mailed_days'] = $marker;
         }
 
-        $message = implode("\n", [
-            '⚠️ <b>Срок действия домена скоро истекает</b>',
-            '',
-            'Домен: <b>' . e($domain->domain) . '</b>',
-            'Осталось дней: <b>' . $daysLeft . '</b>',
-            'Истекает: <b>' . optional($domain->expires_at)->format('Y-m-d H:i') . '</b>',
-            'Регистратор: <b>' . e($domain->registrar ?? '-') . '</b>',
-        ]);
-        if ($notifier->send($message)) {
-            $domain->update([
-                'last_expiry_notified_at' => now(),
-                'last_expiry_notified_days' => $daysLeft,
-            ]);
+        if ($updates !== []) {
+            $domain->update($updates);
         }
     }
 }
